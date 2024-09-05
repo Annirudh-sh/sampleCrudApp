@@ -2,23 +2,29 @@ package com.sample.crud.service;
 
 import com.sample.crud.entity.Comment;
 import com.sample.crud.repo.CommentRepository;
-import jakarta.persistence.criteria.*;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.CriteriaQuery;
+import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Root;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 
 @Service
 public class CommentService {
     @Autowired
     private CommentRepository commentRepository;
+
+    @Autowired
+    private EntityManager entityManager;
 
     @Value("${retrieval.records.limit}")
     private int recordsLimit;
@@ -61,32 +67,21 @@ public class CommentService {
     }
 
     public List<Comment> searchComments(Map<String, Object> params) {
-        Specification<Comment> specification = (Root<Comment> root, CriteriaQuery<?> query, CriteriaBuilder criteriaBuilder) -> {
-            Predicate predicates = criteriaBuilder.conjunction();
+        CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+        CriteriaQuery<Comment> query = cb.createQuery(Comment.class);
+        Root<Comment> root = query.from(Comment.class);
 
-            params.forEach((key, value) -> {
-                Path<Object> path = getPath(root, key);
-                if (value instanceof String) {
-                    predicates.getExpressions().add(criteriaBuilder.like(path.as(String.class), "%" + value + "%"));
-                } else{
-                    predicates.getExpressions().add(criteriaBuilder.equal(path, value));
-                }
-            });
-            predicates.getExpressions().add(criteriaBuilder.isFalse(root.get("softDelete")));
-            return predicates;
-        };
+        List<Predicate> predicates = new ArrayList<>();
 
-        Pageable pageable = PageRequest.of(0, recordsLimit);
-        return commentRepository.findAll(specification, pageable).getContent();
-    }
+        params.forEach((key, value) -> {
+            if(value != null) {
+                predicates.add(cb.equal(root.get(key), value));
+            }
+        });
 
-    private static <T> Path<T> getPath(Path<?> root, String key) {
-        String[] parts = key.split("\\.");
-        Path<?> path = root;
-        for (String part : parts) {
-            path = path.get(part);
-        }
-        return (Path<T>) path;
+        query.select(root).where(cb.or(predicates.toArray(new Predicate[0])));
+
+        return entityManager.createQuery(query).getResultList();
     }
 
 }
